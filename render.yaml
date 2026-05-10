@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: thu-chi-web
+    runtime: python
+    region: singapore          # gần Việt Nam nhất
+    plan: free
+    buildCommand: bash build.sh
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT --app-dir .
+    envVars:
+      - key: GOOGLE_SPREADSHEET_ID
+        sync: false             # nhập thủ công trên Render dashboard
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false             # nhập thủ công trên Render dashboard
+      - key: THU_CHI_WEB_API_KEY
+        sync: false             # tuỳ chọn
+      - key: PYTHON_VERSION
+        value: "3.11.15"

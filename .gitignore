@@ -1,0 +1,25 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.env
+
+# Secrets — KHÔNG commit
+credentials.json
+*credentials*.json
+openclaw_local.json
+service_account*.json
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
