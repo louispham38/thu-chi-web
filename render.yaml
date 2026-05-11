@@ -6,6 +6,7 @@ services:
     plan: free
     buildCommand: bash build.sh
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT --app-dir .
+    healthCheckPath: /ping
     envVars:
       - key: GOOGLE_SPREADSHEET_ID
         sync: false             # nhập thủ công trên Render dashboard

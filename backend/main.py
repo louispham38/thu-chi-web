@@ -57,7 +57,9 @@ app.add_middleware(
 @app.middleware("http")
 async def check_api_key(request: Request, call_next):
     key = api_key()
-    if key and request.url.path.startswith("/api") and request.url.path != "/api/health":
+    # /ping và /api/health luôn public — dùng cho UptimeRobot / Render health check
+    public = {"/ping", "/api/health"}
+    if key and request.url.path.startswith("/api") and request.url.path not in public:
         if request.headers.get("X-API-Key") != key:
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
     return await call_next(request)
@@ -67,6 +69,12 @@ def c() -> SheetClient:
     if client is None:
         raise HTTPException(503, "Chưa khởi tạo kết nối Sheet")
     return client
+
+
+@app.get("/ping")
+async def ping():
+    """Lightweight keepalive — dùng cho UptimeRobot, không gọi Google Sheets."""
+    return {"ok": True}
 
 
 @app.get("/api/health")
