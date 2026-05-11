@@ -2,16 +2,10 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from datetime import datetime
 from pathlib import Path
 
-# Import SheetsManager từ Bot_money (OpenClaw workspace, ngoài iCloud)
-_BOT_ROOT = Path.home() / ".openclaw" / "workspace" / "Bot_money"
-if str(_BOT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_BOT_ROOT))
-
-from sheets_manager import SheetsManager  # noqa: E402
+from sheets_manager import SheetsManager
 
 PLAN_SHEET = "Ke_Hoach_Quy"
 PLAN_HEADERS = ["Tháng", "Quỹ", "Phần trăm", "Số tiền (VND)", "Ghi chú", "Cập nhật"]
@@ -73,7 +67,7 @@ class SheetClient:
                 return 0
 
         def _read():
-            from sheets_manager import SO_DU_SHEET  # noqa: PLC0415
+            from sheets_manager import SO_DU_SHEET
 
             client = self._mgr._get_client()
             sh = client.open_by_key(self._mgr.spreadsheet_id)
