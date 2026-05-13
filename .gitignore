@@ -3,8 +3,12 @@
 __pycache__/
 *.pyc
 *.pyo
+
+# Env files (KHÔNG commit secrets)
 .env
+.env.*
 *.env
+!.env.example
 
 # Secrets — KHÔNG commit
 credentials.json
