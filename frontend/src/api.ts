@@ -46,6 +46,28 @@ export interface PlanRow {
   note: string;
 }
 
+export interface CashflowDay {
+  date: string;       // dd/mm/yyyy
+  weekday: number;    // 0=Mon..6=Sun
+  thu: number;
+  chi: number;
+  balance: number;
+  count: number;
+}
+
+export interface CashflowResp {
+  from: string;
+  to: string;
+  totals: {
+    thu: number;
+    chi: number;
+    balance: number;
+    tx_count: number;
+    day_count: number;
+  };
+  days: CashflowDay[];
+}
+
 export interface ParseResult {
   amount: number;
   thu_chi: "Thu" | "Chi";

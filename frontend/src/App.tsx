@@ -12,9 +12,17 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { AccountRow, api, ParseResult, PlanRow, Summary, Tx } from "./api";
+import {
+  AccountRow,
+  api,
+  CashflowResp,
+  ParseResult,
+  PlanRow,
+  Summary,
+  Tx,
+} from "./api";
 
-type Tab = "dashboard" | "entry" | "accounts" | "plan";
+type Tab = "dashboard" | "entry" | "cashflow" | "accounts" | "plan";
 
 const COLORS = [
   "#06b6d4",
@@ -136,6 +144,7 @@ export default function App() {
             [
               ["dashboard", "Dashboard"],
               ["entry", "Nhập Thu/Chi"],
+              ["cashflow", "Cash flow"],
               ["accounts", "Tài khoản"],
               ["plan", "Kế hoạch quỹ"],
             ] as const
@@ -286,6 +295,10 @@ export default function App() {
           />
         )}
 
+        {tab === "cashflow" && (
+          <CashflowTab onError={showErr} />
+        )}
+
         {tab === "accounts" && (
           <AccountsTable rows={accountRows} />
         )}
@@ -312,6 +325,294 @@ export default function App() {
         Sheet: <strong>Chi Tiêu</strong> · <strong>So_Du</strong> · <strong>Ke_Hoach_Quy</strong>
       </footer>
     </div>
+  );
+}
+
+// ─────────────────────── Cash flow ───────────────────────
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function dmy(d: Date): string {
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+function dmyToISO(s: string): string {
+  // "dd/mm/yyyy" -> "yyyy-mm-dd" for <input type="date">
+  const p = s.split("/");
+  if (p.length !== 3) return "";
+  return `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}`;
+}
+
+function isoToDmy(s: string): string {
+  // "yyyy-mm-dd" -> "dd/mm/yyyy"
+  const p = s.split("-");
+  if (p.length !== 3) return s;
+  return `${p[2]}/${p[1]}/${p[0]}`;
+}
+
+type CashflowPreset = "this-week" | "last-7" | "this-month" | "last-30" | "custom";
+
+function presetRange(p: CashflowPreset): { from: string; to: string } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const to = today;
+  if (p === "last-7") {
+    const from = new Date(today);
+    from.setDate(today.getDate() - 6);
+    return { from: dmy(from), to: dmy(to) };
+  }
+  if (p === "last-30") {
+    const from = new Date(today);
+    from.setDate(today.getDate() - 29);
+    return { from: dmy(from), to: dmy(to) };
+  }
+  if (p === "this-week") {
+    // Monday of this week
+    const dow = (today.getDay() + 6) % 7; // 0=Mon..6=Sun
+    const from = new Date(today);
+    from.setDate(today.getDate() - dow);
+    return { from: dmy(from), to: dmy(to) };
+  }
+  if (p === "this-month") {
+    const from = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: dmy(from), to: dmy(to) };
+  }
+  // custom — default to current month
+  const from = new Date(today.getFullYear(), today.getMonth(), 1);
+  return { from: dmy(from), to: dmy(to) };
+}
+
+const WEEKDAY_LABEL = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+
+function CashflowTab({ onError }: { onError: (s: string) => void }) {
+  const [preset, setPreset] = useState<CashflowPreset>("this-month");
+  const initial = useMemo(() => presetRange("this-month"), []);
+  const [from, setFrom] = useState(initial.from);
+  const [to, setTo] = useState(initial.to);
+  const [data, setData] = useState<CashflowResp | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async (f: string, t: string) => {
+    setLoading(true);
+    try {
+      const r = await api<CashflowResp>(
+        `/api/cashflow?date_from=${encodeURIComponent(f)}&date_to=${encodeURIComponent(t)}`,
+      );
+      setData(r);
+    } catch (err) {
+      onError(String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [onError]);
+
+  useEffect(() => {
+    load(from, to);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function applyPreset(p: CashflowPreset) {
+    setPreset(p);
+    if (p === "custom") return;
+    const r = presetRange(p);
+    setFrom(r.from);
+    setTo(r.to);
+    load(r.from, r.to);
+  }
+
+  function applyCustom() {
+    setPreset("custom");
+    load(from, to);
+  }
+
+  const chartData = useMemo(
+    () =>
+      (data?.days ?? []).map((d) => ({
+        date: d.date.slice(0, 5), // dd/mm
+        Thu: d.thu,
+        Chi: d.chi,
+        Net: d.balance,
+      })),
+    [data],
+  );
+
+  return (
+    <section className="panel">
+      <div className="row between">
+        <h2>Cash flow theo ngày</h2>
+        <span className="hint" style={{ margin: 0 }}>
+          {data ? `${data.from} → ${data.to}` : "—"}
+        </span>
+      </div>
+
+      {/* Preset chips */}
+      <div className="cf-presets">
+        {(
+          [
+            ["this-week", "Tuần này"],
+            ["last-7", "7 ngày"],
+            ["this-month", "Tháng này"],
+            ["last-30", "30 ngày"],
+            ["custom", "Tùy chỉnh"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={`cf-chip ${preset === id ? "active" : ""}`}
+            onClick={() => applyPreset(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {preset === "custom" && (
+        <div className="cf-custom">
+          <label>
+            Từ
+            <input
+              type="date"
+              value={dmyToISO(from)}
+              onChange={(e) => setFrom(isoToDmy(e.target.value))}
+            />
+          </label>
+          <label>
+            Đến
+            <input
+              type="date"
+              value={dmyToISO(to)}
+              onChange={(e) => setTo(isoToDmy(e.target.value))}
+            />
+          </label>
+          <button type="button" className="btn primary send-btn" onClick={applyCustom}>
+            Áp dụng
+          </button>
+        </div>
+      )}
+
+      {/* Summary cards */}
+      {data && (
+        <div className="cards" style={{ marginTop: "1rem" }}>
+          <div className="card thu">
+            <span>Tổng Thu</span>
+            <strong>{new Intl.NumberFormat("vi-VN").format(data.totals.thu)} đ</strong>
+          </div>
+          <div className="card chi">
+            <span>Tổng Chi</span>
+            <strong>{new Intl.NumberFormat("vi-VN").format(data.totals.chi)} đ</strong>
+          </div>
+          <div className={`card ${data.totals.balance >= 0 ? "bal" : "neg"}`}>
+            <span>Net cash flow</span>
+            <strong className={data.totals.balance < 0 ? "neg-val" : ""}>
+              {data.totals.balance >= 0 ? "+" : ""}
+              {new Intl.NumberFormat("vi-VN").format(data.totals.balance)} đ
+            </strong>
+          </div>
+          <div className="card bal">
+            <span>Số ngày · giao dịch</span>
+            <strong>
+              {data.totals.day_count} · {data.totals.tx_count}
+            </strong>
+          </div>
+        </div>
+      )}
+
+      {/* Chart */}
+      <h3>Biểu đồ Thu/Chi theo ngày</h3>
+      {loading ? (
+        <p className="empty-chart">Đang tải…</p>
+      ) : !data || chartData.length === 0 ? (
+        <p className="empty-chart">Không có giao dịch trong khoảng này.</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis dataKey="date" tick={{ fill: "#64748b", fontSize: 10 }} interval="preserveStartEnd" />
+            <YAxis
+              tick={{ fill: "#64748b", fontSize: 10 }}
+              tickFormatter={(v) => (Math.abs(v) >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : `${Math.round(v / 1e3)}k`)}
+              width={45}
+            />
+            <Tooltip
+              formatter={(v: number) => new Intl.NumberFormat("vi-VN").format(v) + " đ"}
+              labelStyle={{ color: "#0f172a" }}
+            />
+            <Legend />
+            <Bar dataKey="Thu" stackId="a" fill="#22c55e" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="Chi" stackId="b" fill="#f97316" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+
+      {/* Daily table */}
+      {data && data.days.length > 0 && (
+        <>
+          <h3>Bảng chi tiết theo ngày</h3>
+          <div className="tx-table-wrap">
+            <table className="cf-table">
+              <thead>
+                <tr>
+                  <th>Ngày</th>
+                  <th>Thứ</th>
+                  <th style={{ textAlign: "right" }}>Thu</th>
+                  <th style={{ textAlign: "right" }}>Chi</th>
+                  <th style={{ textAlign: "right" }}>Net</th>
+                  <th style={{ textAlign: "right" }}>GD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.days.map((d) => {
+                  const empty = d.count === 0;
+                  return (
+                    <tr key={d.date} className={empty ? "row-empty" : ""}>
+                      <td className="acct-name">{d.date}</td>
+                      <td>{WEEKDAY_LABEL[d.weekday]}</td>
+                      <td className="num-cell" style={{ color: d.thu > 0 ? "var(--thu)" : undefined }}>
+                        {d.thu > 0 ? new Intl.NumberFormat("vi-VN").format(d.thu) + " đ" : <span className="muted">—</span>}
+                      </td>
+                      <td className="num-cell" style={{ color: d.chi > 0 ? "var(--chi)" : undefined }}>
+                        {d.chi > 0 ? new Intl.NumberFormat("vi-VN").format(d.chi) + " đ" : <span className="muted">—</span>}
+                      </td>
+                      <td className={`num-cell ${d.balance < 0 ? "cell-neg" : d.balance > 0 ? "cell-pos" : ""}`}>
+                        {d.count === 0 ? (
+                          <span className="muted">—</span>
+                        ) : (
+                          <>
+                            {d.balance > 0 ? "+" : ""}
+                            {new Intl.NumberFormat("vi-VN").format(d.balance)} đ
+                          </>
+                        )}
+                      </td>
+                      <td className="num-cell">{d.count || <span className="muted">—</span>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="sum-row">
+                  <td colSpan={2}><strong>Tổng cộng</strong></td>
+                  <td className="num-cell" style={{ color: "var(--thu)" }}>
+                    <strong>{new Intl.NumberFormat("vi-VN").format(data.totals.thu)} đ</strong>
+                  </td>
+                  <td className="num-cell" style={{ color: "var(--chi)" }}>
+                    <strong>{new Intl.NumberFormat("vi-VN").format(data.totals.chi)} đ</strong>
+                  </td>
+                  <td className={`num-cell ${data.totals.balance < 0 ? "cell-neg" : "cell-pos"}`}>
+                    <strong>
+                      {data.totals.balance >= 0 ? "+" : ""}
+                      {new Intl.NumberFormat("vi-VN").format(data.totals.balance)} đ
+                    </strong>
+                  </td>
+                  <td className="num-cell"><strong>{data.totals.tx_count}</strong></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 

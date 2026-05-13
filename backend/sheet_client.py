@@ -188,6 +188,85 @@ class SheetClient:
         await asyncio.to_thread(_write)
 
 
+def _parse_dmy(s: str):
+    """dd/mm/yyyy -> datetime.date or None."""
+    from datetime import date as _date
+    s = (s or "").strip()
+    if len(s) < 10:
+        return None
+    try:
+        d, m, y = s[:10].split("/")
+        return _date(int(y), int(m), int(d))
+    except (ValueError, IndexError):
+        return None
+
+
+def cashflow_daily(records: list[dict], date_from: str, date_to: str) -> dict:
+    """
+    Aggregate transactions per day between [date_from, date_to] (inclusive).
+    Inputs are dd/mm/yyyy; returns:
+      {
+        "from": "...", "to": "...",
+        "totals": {"thu": .., "chi": .., "balance": .., "tx_count": ..},
+        "days": [{date, thu, chi, balance, count}, ...]   # all days in range
+      }
+    """
+    from datetime import date, timedelta
+
+    df = _parse_dmy(date_from)
+    dt = _parse_dmy(date_to)
+    if df is None or dt is None or df > dt:
+        raise ValueError("Khoảng ngày không hợp lệ (dd/mm/yyyy).")
+
+    by_day: dict[str, dict[str, int]] = {}
+    total_thu = total_chi = total_count = 0
+    for r in records:
+        rd = _parse_dmy(r.get("date") or "")
+        if rd is None or rd < df or rd > dt:
+            continue
+        amt = int(r.get("amount") or 0)
+        tc = r.get("thu_chi") or "Chi"
+        key = rd.strftime("%d/%m/%Y")
+        bucket = by_day.setdefault(key, {"thu": 0, "chi": 0, "count": 0})
+        if tc == "Thu":
+            bucket["thu"] += amt
+            total_thu += amt
+        else:
+            bucket["chi"] += amt
+            total_chi += amt
+        bucket["count"] += 1
+        total_count += 1
+
+    days = []
+    one = timedelta(days=1)
+    cur = df
+    while cur <= dt:
+        key = cur.strftime("%d/%m/%Y")
+        b = by_day.get(key, {"thu": 0, "chi": 0, "count": 0})
+        days.append({
+            "date": key,
+            "weekday": cur.weekday(),  # 0=Mon..6=Sun
+            "thu": b["thu"],
+            "chi": b["chi"],
+            "balance": b["thu"] - b["chi"],
+            "count": b["count"],
+        })
+        cur += one
+
+    return {
+        "from": df.strftime("%d/%m/%Y"),
+        "to": dt.strftime("%d/%m/%Y"),
+        "totals": {
+            "thu": total_thu,
+            "chi": total_chi,
+            "balance": total_thu - total_chi,
+            "tx_count": total_count,
+            "day_count": len(days),
+        },
+        "days": days,
+    }
+
+
 def summarize_month(records: list[dict], month_mm_yyyy: str) -> dict:
     """month_mm_yyyy = MM/YYYY; date trong record là dd/mm/yyyy."""
     thu = chi = 0

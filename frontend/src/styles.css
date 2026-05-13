@@ -405,6 +405,94 @@ body { margin: 0; min-height: 100vh; }
   padding: 0.55rem 0.75rem;
 }
 
+/* ── Cash flow ── */
+.cf-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.85rem 0 0.25rem;
+}
+
+.cf-chip {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: border-color 0.15s, color 0.15s;
+}
+.cf-chip:hover { color: var(--text); border-color: var(--accent); }
+.cf-chip.active {
+  background: linear-gradient(135deg, #0e7490, #155e75);
+  color: #fff;
+  border-color: transparent;
+}
+
+.cf-custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.cf-custom label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.cf-custom input[type="date"] {
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.9rem;
+  color-scheme: dark;
+}
+
+.cf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.cf-table th {
+  background: #0f172a;
+  color: var(--muted);
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  font-weight: 500;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.cf-table td {
+  padding: 0.45rem 0.65rem;
+  border-top: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.cf-table .num-cell {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 0.83rem;
+}
+
+.cf-table .row-empty td { color: #475569; }
+.cf-table .row-empty .acct-name { color: #475569; }
+
+.cf-table tfoot .sum-row td {
+  border-top: 2px solid var(--border);
+  background: #0f172a;
+  padding: 0.55rem 0.65rem;
+}
+
 /* ── Chat window ── */
 .chat-window {
   background: #0a1120;

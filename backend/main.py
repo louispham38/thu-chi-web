@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from config import api_key, cors_origins, credentials_path, spreadsheet_id
 from parser import parse_expense
-from sheet_client import DEFAULT_FUNDS, SheetClient, summarize_month
+from sheet_client import DEFAULT_FUNDS, SheetClient, cashflow_daily, summarize_month
 
 SHEET_CATEGORIES = [
     "Ăn uống",
@@ -161,6 +161,16 @@ async def summary_range(months_back: int = 6) -> list[dict]:
         s["month"] = mm_yyyy
         out.append(s)
     return list(reversed(out))
+
+
+@app.get("/api/cashflow")
+async def cashflow(date_from: str, date_to: str) -> dict:
+    """Daily Thu/Chi/balance for [date_from, date_to] (dd/mm/yyyy inclusive)."""
+    rows = await c().all_transactions()
+    try:
+        return cashflow_daily(rows, date_from, date_to)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/accounts")
