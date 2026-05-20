@@ -163,19 +163,56 @@ thu-chi-web/
 ## Status
 
 - ✅ **Phase 1**: Landing + Google OAuth + per-user Sheet creation + workspace switcher
-- ⏳ **Phase 2** (chưa làm): trang Profile, mời thành viên qua email, quản lý workspace, xoá account
+- ✅ **Phase 2**: Trang Profile (đổi tên, xoá account), Workspace settings (rename, list/remove members, mời thành viên qua link), trang Accept Invite, Drive sharing tự động khi accept
 
-## API endpoints (mới)
+## Pages
+
+| Path | Mô tả |
+|------|-------|
+| `/` | Landing page (marketing + signup) |
+| `/login` | Google OAuth |
+| `/onboarding` | Tạo Sheet mới hoặc adopt Sheet đã có |
+| `/app` | Dashboard / Nhập Thu Chi / Cash flow / Tài khoản / Kế hoạch quỹ |
+| `/profile` | Hồ sơ user · danh sách workspaces · xoá account |
+| `/workspace/settings` | Đổi tên · thành viên · lời mời · leave/delete |
+| `/invite/:token` | Trang chấp nhận lời mời (public, redirect login nếu cần) |
+
+## API endpoints
+
+### Auth + onboarding
 
 | Method | Path | Mô tả |
 |--------|------|-------|
-| GET | `/auth/status` | `{enabled: bool}` — frontend biết server có OAuth không |
+| GET | `/auth/status` | `{enabled: bool}` |
 | GET | `/auth/login?next=/app` | Redirect → Google consent |
 | GET | `/auth/callback` | OAuth callback — set cookie + redirect |
 | POST | `/auth/logout` | Xoá session cookie |
 | GET | `/api/me` | Thông tin user + workspaces |
-| POST | `/api/onboarding/create-workspace` | Tạo Sheet mới + workspace |
+| PATCH | `/api/me` | Đổi tên hiển thị |
+| DELETE | `/api/me` | Xoá tài khoản |
+| POST | `/api/onboarding/create-workspace` | Tạo Sheet mới |
 | POST | `/api/onboarding/adopt-sheet` | Dùng Sheet ID đã có |
 
-Các endpoint cũ (`/api/transactions`, `/api/cashflow`, …) tự động chọn sheet
-theo session cookie + `X-Workspace-Id` header.
+### Workspaces
+
+| Method | Path | Mô tả |
+|--------|------|-------|
+| GET | `/api/workspaces` | Danh sách workspaces của user |
+| PATCH | `/api/workspaces/{id}` | Đổi tên (owner) |
+| DELETE | `/api/workspaces/{id}` | Xoá khỏi app (owner) — không xoá Sheet |
+| POST | `/api/workspaces/{id}/leave` | Rời (member) |
+| GET | `/api/workspaces/{id}/members` | Danh sách thành viên |
+| DELETE | `/api/workspaces/{id}/members/{user_id}` | Kick (owner) |
+
+### Invites
+
+| Method | Path | Mô tả |
+|--------|------|-------|
+| POST | `/api/workspaces/{id}/invites` | Tạo invite (owner/editor) |
+| GET | `/api/workspaces/{id}/invites` | Danh sách invites |
+| DELETE | `/api/invites/{id}` | Thu hồi |
+| GET | `/api/invites/{token}` | Public — lấy thông tin invite |
+| POST | `/api/invites/{token}/accept` | Accept (sau khi login) — Drive tự share |
+
+Các endpoint dữ liệu (`/api/transactions`, `/api/cashflow`, …) tự động chọn
+sheet theo session cookie + `X-Workspace-Id` header.

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../auth";
 
 export default function UserMenu() {
@@ -56,6 +57,21 @@ export default function UserMenu() {
             </>
           )}
 
+          <div className="dropdown-divider" />
+          <Link
+            to="/workspace/settings"
+            className="dropdown-item link"
+            onClick={() => setOpen(false)}
+          >
+            Cài đặt workspace
+          </Link>
+          <Link
+            to="/profile"
+            className="dropdown-item link"
+            onClick={() => setOpen(false)}
+          >
+            Tài khoản
+          </Link>
           <div className="dropdown-divider" />
           <button
             type="button"

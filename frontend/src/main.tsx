@@ -3,9 +3,12 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import App from "./App";
 import { AuthProvider, useAuth } from "./auth";
+import AcceptInvite from "./pages/AcceptInvite";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Onboarding from "./pages/Onboarding";
+import Profile from "./pages/Profile";
+import WorkspaceSettings from "./pages/WorkspaceSettings";
 import "./styles.css";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -38,6 +41,23 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               <RequireAuth>
                 <Onboarding />
               </RequireAuth>
+            }
+          />
+          <Route path="/invite/:token" element={<AcceptInvite />} />
+          <Route
+            path="/profile"
+            element={
+              <RequireAuth>
+                <Profile />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/workspace/settings"
+            element={
+              <RequireWorkspace>
+                <WorkspaceSettings />
+              </RequireWorkspace>
             }
           />
           <Route

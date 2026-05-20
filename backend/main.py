@@ -17,6 +17,7 @@ import tenant_ops
 from config import api_key, auth_enabled, cors_origins
 from db import init_db
 from parser import parse_expense
+from routes_account import router as account_router
 from routes_auth import router as auth_router
 from sheet_client import DEFAULT_FUNDS, cashflow_daily, summarize_month
 from tenant import TenantCtx, resolve_tenant
@@ -59,6 +60,7 @@ async def check_api_key(request: Request, call_next):
 
 
 app.include_router(auth_router)
+app.include_router(account_router)
 
 
 # ── Public health endpoints ──────────────────────────────────────────────────
