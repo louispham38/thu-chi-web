@@ -225,6 +225,13 @@ async def post_planning(
 
 _STATIC = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
+if os.path.isdir(os.path.join(_STATIC, "assets")):
+    app.mount(
+        "/assets",
+        StaticFiles(directory=os.path.join(_STATIC, "assets")),
+        name="assets",
+    )
+
 
 @app.get("/")
 async def spa_root():
@@ -234,16 +241,11 @@ async def spa_root():
     return JSONResponse({"hint": "Build frontend trước (npm run build).", "api": "/api/health"})
 
 
-# Serve all SPA routes (login, app, onboarding, profile, …) via index.html
 @app.get("/{full_path:path}")
 async def spa_catchall(full_path: str):
-    if full_path.startswith(("api", "auth", "ping", "assets")):
+    if full_path.startswith(("api/", "auth/", "ping", "assets/")):
         raise HTTPException(404)
     index = os.path.join(_STATIC, "index.html")
     if os.path.isfile(index):
         return FileResponse(index)
     raise HTTPException(404)
-
-
-if os.path.isdir(_STATIC):
-    app.mount("/assets", StaticFiles(directory=os.path.join(_STATIC, "assets")), name="assets")
