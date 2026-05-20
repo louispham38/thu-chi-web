@@ -67,24 +67,35 @@ def _open_sync(access_token: str, sheet_id: str):
 
 
 async def list_transactions(access_token: str, sheet_id: str) -> list[dict[str, Any]]:
+    """Read all rows from 'Chi Tiêu' tab, normalising date serials and VND amounts.
+
+    Reuses the robust parsers from `sheets_manager` so adopted legacy sheets
+    (which store dates as serials and amounts with VN-style separators or ₫
+    suffix) are read correctly.
+    """
+    from sheets_manager import (
+        _parse_ngay_cell_to_dd_mm_yyyy,
+        _parse_vnd_amount,
+        _record_thu_chi_value,
+    )
+
     def _read():
         sh = _open_sync(access_token, sheet_id)
         ws = sh.worksheet("Chi Tiêu")
-        rows = ws.get_all_records()
+        try:
+            rows = ws.get_all_records(value_render_option="UNFORMATTED_VALUE")
+        except TypeError:
+            rows = ws.get_all_records()
         out = []
         for r in rows:
-            try:
-                amt = int(float(str(r.get("Số tiền (VND)", "0")).replace(",", "") or 0))
-            except (ValueError, TypeError):
-                amt = 0
             out.append({
-                "date": str(r.get("Ngày", "")).strip(),
+                "date": _parse_ngay_cell_to_dd_mm_yyyy(r.get("Ngày")),
                 "time": str(r.get("Giờ", "")).strip(),
-                "thu_chi": str(r.get("Thu/Chi", "Chi")).strip() or "Chi",
+                "thu_chi": _record_thu_chi_value(r),
                 "payment_method": str(r.get("Phương thức", "")).strip(),
                 "category": str(r.get("Danh mục", "Khác")).strip() or "Khác",
                 "description": str(r.get("Mô tả", "")).strip(),
-                "amount": amt,
+                "amount": _parse_vnd_amount(r.get("Số tiền (VND)")),
                 "note": str(r.get("Ghi chú", "")).strip(),
             })
         return out
@@ -170,6 +181,8 @@ async def get_so_du(access_token: str, sheet_id: str) -> list[dict[str, Any]]:
 
 
 async def get_planning(access_token: str, sheet_id: str, month: str) -> list[dict]:
+    from sheets_manager import _parse_vnd_amount
+
     def _read():
         sh = _open_sync(access_token, sheet_id)
         try:
@@ -180,11 +193,15 @@ async def get_planning(access_token: str, sheet_id: str, month: str) -> list[dic
         out = []
         for r in rows:
             if str(r.get("Tháng", "")).strip() == month.strip():
+                try:
+                    pct = float(str(r.get("Phần trăm") or 0).replace("%", "").replace(",", ".") or 0)
+                except (ValueError, TypeError):
+                    pct = 0.0
                 out.append({
                     "month": r.get("Tháng", ""),
                     "fund": r.get("Quỹ", ""),
-                    "percent": float(r.get("Phần trăm") or 0),
-                    "amount": int(float(str(r.get("Số tiền (VND)", "0")).replace(",", "") or 0)),
+                    "percent": pct,
+                    "amount": _parse_vnd_amount(r.get("Số tiền (VND)")),
                     "note": r.get("Ghi chú", ""),
                     "updated": r.get("Cập nhật", ""),
                 })
