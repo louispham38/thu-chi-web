@@ -1,50 +1,41 @@
-"""Web API thu/chi — dùng chung Google Sheet với OpenClaw Bot."""
+"""Web API thu/chi — multi-tenant (Google OAuth) + legacy single-tenant fallback."""
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from config import api_key, cors_origins, credentials_path, spreadsheet_id
+import tenant_ops
+from config import api_key, auth_enabled, cors_origins
+from db import init_db
 from parser import parse_expense
-from sheet_client import DEFAULT_FUNDS, SheetClient, cashflow_daily, summarize_month
+from routes_auth import router as auth_router
+from sheet_client import DEFAULT_FUNDS, cashflow_daily, summarize_month
+from tenant import TenantCtx, resolve_tenant
+
+logger = logging.getLogger(__name__)
 
 SHEET_CATEGORIES = [
-    "Ăn uống",
-    "Mua sắm",
-    "Học hành",
-    "Xăng xe",
-    "Di chuyển",
-    "Hóa đơn",
-    "Giải trí",
-    "Sức khỏe",
-    "Nhà cửa",
-    "Khác",
+    "Ăn uống", "Mua sắm", "Học hành", "Xăng xe", "Di chuyển",
+    "Hóa đơn", "Giải trí", "Sức khỏe", "Nhà cửa", "Khác",
 ]
-
-client: Optional[SheetClient] = None
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global client
-    cred = credentials_path()
-    sid = spreadsheet_id()
-    if not os.path.isfile(cred):
-        raise RuntimeError(f"Không tìm thấy credentials: {cred}")
-    client = SheetClient(sid, cred)
+    init_db()
     yield
-    client = None
 
 
-app = FastAPI(title="Thu Chi Web", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Thu Chi Web", version="2.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
@@ -56,30 +47,30 @@ app.add_middleware(
 
 @app.middleware("http")
 async def check_api_key(request: Request, call_next):
+    """Optional API-key gate for legacy mode. Skipped when multi-tenant auth is on."""
+    if auth_enabled():
+        return await call_next(request)
     key = api_key()
-    # /ping và /api/health luôn public — dùng cho UptimeRobot / Render health check
-    public = {"/ping", "/api/health"}
+    public = {"/ping", "/api/health", "/auth/status"}
     if key and request.url.path.startswith("/api") and request.url.path not in public:
         if request.headers.get("X-API-Key") != key:
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
     return await call_next(request)
 
 
-def c() -> SheetClient:
-    if client is None:
-        raise HTTPException(503, "Chưa khởi tạo kết nối Sheet")
-    return client
+app.include_router(auth_router)
 
+
+# ── Public health endpoints ──────────────────────────────────────────────────
 
 @app.get("/ping")
 async def ping():
-    """Lightweight keepalive — dùng cho UptimeRobot, không gọi Google Sheets."""
     return {"ok": True}
 
 
 @app.get("/api/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "sheet": spreadsheet_id()[:8] + "…"}
+    return {"status": "ok", "auth_enabled": str(auth_enabled())}
 
 
 @app.get("/api/meta")
@@ -91,13 +82,15 @@ async def meta() -> dict[str, Any]:
     }
 
 
+# ── Tenant-aware endpoints ───────────────────────────────────────────────────
+
 class TransactionIn(BaseModel):
     amount: int = Field(..., ge=0)
     description: str = ""
     category: str = "Khác"
     payment_method: str = "Tiền mặt"
     thu_chi: Literal["Thu", "Chi"] = "Chi"
-    date: Optional[str] = None  # dd/mm/yyyy
+    date: Optional[str] = None
     note: str = ""
 
 
@@ -106,24 +99,27 @@ class ParseRequest(BaseModel):
 
 
 @app.post("/api/parse")
-async def parse_text(body: ParseRequest) -> dict:
-    """Parse natural-language expense text into structured fields."""
-    methods = await c().payment_methods()
-    result = parse_expense(body.text, payment_methods=methods, categories=SHEET_CATEGORIES)
-    return result
+async def parse_text(
+    body: ParseRequest,
+    ctx: TenantCtx = Depends(resolve_tenant),
+) -> dict:
+    methods = await tenant_ops.payment_methods(ctx)
+    return parse_expense(body.text, payment_methods=methods, categories=SHEET_CATEGORIES)
 
 
 @app.get("/api/transactions")
-async def list_transactions() -> list[dict]:
-    return await c().all_transactions()
+async def list_transactions(ctx: TenantCtx = Depends(resolve_tenant)) -> list[dict]:
+    return await tenant_ops.list_transactions(ctx)
 
 
 @app.post("/api/transactions")
-async def add_transaction(body: TransactionIn) -> dict:
-    d = body.date
-    if not d:
-        d = datetime.now().strftime("%d/%m/%Y")
-    ok, err = await c().append_transaction(
+async def add_transaction(
+    body: TransactionIn,
+    ctx: TenantCtx = Depends(resolve_tenant),
+) -> dict:
+    d = body.date or datetime.now().strftime("%d/%m/%Y")
+    ok, err = await tenant_ops.append_transaction(
+        ctx,
         amount=body.amount,
         description=body.description,
         category=body.category,
@@ -134,21 +130,23 @@ async def add_transaction(body: TransactionIn) -> dict:
     )
     if not ok:
         raise HTTPException(400, err or "Không ghi được")
-    return {"ok": True, "message": "Đã ghi vào Google Sheet"}
+    return {"ok": True}
 
 
 @app.get("/api/summary")
-async def summary(month: str) -> dict:
-    """month = MM/YYYY"""
+async def summary(month: str, ctx: TenantCtx = Depends(resolve_tenant)) -> dict:
     if len(month) != 7 or "/" not in month:
         raise HTTPException(400, "month phải là MM/YYYY")
-    rows = await c().all_transactions()
+    rows = await tenant_ops.list_transactions(ctx)
     return summarize_month(rows, month)
 
 
 @app.get("/api/summary/range")
-async def summary_range(months_back: int = 6) -> list[dict]:
-    rows = await c().all_transactions()
+async def summary_range(
+    months_back: int = 6,
+    ctx: TenantCtx = Depends(resolve_tenant),
+) -> list[dict]:
+    rows = await tenant_ops.list_transactions(ctx)
     now = datetime.now()
     out = []
     for i in range(months_back):
@@ -156,17 +154,19 @@ async def summary_range(months_back: int = 6) -> list[dict]:
         while m <= 0:
             m += 12
             y -= 1
-        mm_yyyy = f"{m:02d}/{y}"
-        s = summarize_month(rows, mm_yyyy)
-        s["month"] = mm_yyyy
+        s = summarize_month(rows, f"{m:02d}/{y}")
+        s["month"] = f"{m:02d}/{y}"
         out.append(s)
     return list(reversed(out))
 
 
 @app.get("/api/cashflow")
-async def cashflow(date_from: str, date_to: str) -> dict:
-    """Daily Thu/Chi/balance for [date_from, date_to] (dd/mm/yyyy inclusive)."""
-    rows = await c().all_transactions()
+async def cashflow(
+    date_from: str,
+    date_to: str,
+    ctx: TenantCtx = Depends(resolve_tenant),
+) -> dict:
+    rows = await tenant_ops.list_transactions(ctx)
     try:
         return cashflow_daily(rows, date_from, date_to)
     except ValueError as e:
@@ -174,12 +174,12 @@ async def cashflow(date_from: str, date_to: str) -> dict:
 
 
 @app.get("/api/accounts")
-async def accounts() -> dict[str, Any]:
+async def accounts(ctx: TenantCtx = Depends(resolve_tenant)) -> dict[str, Any]:
     try:
-        rows = await c().get_so_du()
+        rows = await tenant_ops.get_so_du(ctx)
         methods = [r["name"] for r in rows]
     except Exception:
-        methods = await c().payment_methods()
+        methods = await tenant_ops.payment_methods(ctx)
         rows = [{"name": m, "dau_ky": None, "hien_co": None} for m in methods]
     return {"payment_methods": methods, "rows": rows}
 
@@ -192,40 +192,35 @@ class PlanRowIn(BaseModel):
 
 
 class PlanSave(BaseModel):
-    month: str = Field(..., pattern=r"^\d{2}/\d{4}$")  # MM/YYYY
+    month: str = Field(..., pattern=r"^\d{2}/\d{4}$")
     rows: list[PlanRowIn]
 
 
 @app.get("/api/planning")
-async def get_planning(month: str) -> list[dict]:
-    data = await c().get_planning(month)
+async def get_planning(month: str, ctx: TenantCtx = Depends(resolve_tenant)) -> list[dict]:
+    data = await tenant_ops.get_planning(ctx, month)
     existing = {r["fund"]: r for r in data}
     merged = []
     for f in DEFAULT_FUNDS:
-        if f in existing:
-            merged.append(existing[f])
-        else:
-            merged.append(
-                {
-                    "month": month,
-                    "fund": f,
-                    "percent": 0.0,
-                    "amount": 0,
-                    "note": "",
-                    "updated": "",
-                }
-            )
+        merged.append(existing.get(f, {
+            "month": month, "fund": f, "percent": 0.0,
+            "amount": 0, "note": "", "updated": "",
+        }))
     return merged
 
 
 @app.post("/api/planning")
-async def post_planning(body: PlanSave) -> dict:
+async def post_planning(
+    body: PlanSave,
+    ctx: TenantCtx = Depends(resolve_tenant),
+) -> dict:
     rows = [r.model_dump() for r in body.rows]
-    await c().save_planning(body.month, rows)
+    await tenant_ops.save_planning(ctx, body.month, rows)
     return {"ok": True}
 
 
-# Static UI (sau khi npm run build)
+# ── Static UI (sau khi npm run build) ────────────────────────────────────────
+
 _STATIC = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
 
@@ -234,15 +229,19 @@ async def spa_root():
     index = os.path.join(_STATIC, "index.html")
     if os.path.isfile(index):
         return FileResponse(index)
-    return JSONResponse(
-        {
-            "hint": "Chạy frontend: cd frontend && npm install && npm run dev "
-            "— hoặc npm run build để phục vụ từ /",
-            "api": "/api/health",
-        }
-    )
+    return JSONResponse({"hint": "Build frontend trước (npm run build).", "api": "/api/health"})
+
+
+# Serve all SPA routes (login, app, onboarding, profile, …) via index.html
+@app.get("/{full_path:path}")
+async def spa_catchall(full_path: str):
+    if full_path.startswith(("api", "auth", "ping", "assets")):
+        raise HTTPException(404)
+    index = os.path.join(_STATIC, "index.html")
+    if os.path.isfile(index):
+        return FileResponse(index)
+    raise HTTPException(404)
 
 
 if os.path.isdir(_STATIC):
     app.mount("/assets", StaticFiles(directory=os.path.join(_STATIC, "assets")), name="assets")
-

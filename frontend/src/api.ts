@@ -1,5 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
+const WORKSPACE_KEY = "thu-chi.workspace";
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -7,7 +9,13 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   };
   const key = import.meta.env.VITE_API_KEY;
   if (key) headers["X-API-Key"] = key;
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const ws = localStorage.getItem(WORKSPACE_KEY);
+  if (ws) headers["X-Workspace-Id"] = ws;
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: "include",
+    ...init,
+    headers,
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error((err as { detail?: string }).detail || String(res.status));

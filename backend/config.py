@@ -70,3 +70,39 @@ def cors_origins() -> list[str]:
     if raw.strip():
         return [x.strip() for x in raw.split(",") if x.strip()]
     return ["*"]  # open by default khi deploy; khoá lại bằng env var
+
+
+# ── OAuth + auth (Phase 1) ───────────────────────────────────────────────────
+
+def google_oauth_client_id() -> str:
+    return os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+
+
+def google_oauth_client_secret() -> str:
+    return os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+
+
+def public_base_url() -> str:
+    """e.g. https://thu-chi-web.onrender.com — for OAuth redirect_uri."""
+    return os.environ.get("PUBLIC_BASE_URL", "http://127.0.0.1:8000").strip().rstrip("/")
+
+
+def jwt_secret() -> str:
+    """Used for signing session cookies. Must be set in production."""
+    v = os.environ.get("JWT_SECRET", "").strip()
+    if not v:
+        # Dev fallback — print warning later if used in production.
+        return "dev-only-secret-change-me"
+    return v
+
+
+def fernet_key() -> str:
+    """Symmetric encryption key for refresh tokens. base64 32-byte key.
+    Generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+    """
+    return os.environ.get("FERNET_KEY", "").strip()
+
+
+def auth_enabled() -> bool:
+    """Multi-tenant mode requires both Google OAuth client + Fernet key."""
+    return bool(google_oauth_client_id() and google_oauth_client_secret() and fernet_key())

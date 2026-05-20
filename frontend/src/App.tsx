@@ -21,6 +21,8 @@ import {
   Summary,
   Tx,
 } from "./api";
+import { useAuth } from "./auth";
+import UserMenu from "./components/UserMenu";
 
 type Tab = "dashboard" | "entry" | "cashflow" | "accounts" | "plan";
 
@@ -136,9 +138,10 @@ export default function App() {
           <span className="logo">⌁</span>
           <div>
             <h1>Thu / Chi</h1>
-            <p className="sub">Đồng bộ Google Sheet · OpenClaw Bot</p>
+            <WorkspaceLabel />
           </div>
         </div>
+        <UserMenu />
         <nav className="tabs">
           {(
             [
@@ -1081,4 +1084,14 @@ function PlanningTable({
       </button>
     </section>
   );
+}
+
+function WorkspaceLabel() {
+  const { workspaces, currentWorkspaceId, authEnabled } = useAuth();
+  if (!authEnabled) {
+    return <p className="sub">Đồng bộ Google Sheet · OpenClaw Bot</p>;
+  }
+  const ws = workspaces.find((w) => w.id === currentWorkspaceId) ?? workspaces[0];
+  if (!ws) return <p className="sub">Đang tải workspace…</p>;
+  return <p className="sub">{ws.name}</p>;
 }

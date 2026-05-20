@@ -2,17 +2,46 @@ services:
   - type: web
     name: thu-chi-web
     runtime: python
-    region: singapore          # gần Việt Nam nhất
+    region: singapore
     plan: free
     buildCommand: bash build.sh
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT --app-dir .
     healthCheckPath: /ping
     envVars:
+      # ── Legacy single-tenant (giữ Bot Telegram chạy như cũ) ─────────────────
       - key: GOOGLE_SPREADSHEET_ID
-        sync: false             # nhập thủ công trên Render dashboard
+        sync: false
       - key: GOOGLE_CREDENTIALS_JSON
-        sync: false             # nhập thủ công trên Render dashboard
+        sync: false
       - key: THU_CHI_WEB_API_KEY
-        sync: false             # tuỳ chọn
+        sync: false
+
+      # ── Multi-tenant (Phase 1: Google OAuth) ───────────────────────────────
+      # Lấy từ Google Cloud Console → APIs & Services → Credentials → OAuth client ID (Web)
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      # Render sẽ tự sinh
+      - key: JWT_SECRET
+        generateValue: true
+      # Tự sinh bằng: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      - key: FERNET_KEY
+        sync: false
+      # URL công khai (vd https://thu-chi-web.onrender.com) — dùng cho OAuth redirect
+      - key: PUBLIC_BASE_URL
+        sync: false
+
+      # ── Database (Postgres do Render cung cấp) ─────────────────────────────
+      - key: DATABASE_URL
+        fromDatabase:
+          name: thu-chi-db
+          property: connectionString
+
       - key: PYTHON_VERSION
         value: "3.11.15"
+
+databases:
+  - name: thu-chi-db
+    plan: free
+    region: singapore
