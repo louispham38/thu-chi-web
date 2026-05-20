@@ -225,27 +225,45 @@ async def post_planning(
 
 _STATIC = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
+_INDEX_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+
+class _ImmutableAssets(StaticFiles):
+    """Serve hashed Vite assets with long-lived immutable caching."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 if os.path.isdir(os.path.join(_STATIC, "assets")):
     app.mount(
         "/assets",
-        StaticFiles(directory=os.path.join(_STATIC, "assets")),
+        _ImmutableAssets(directory=os.path.join(_STATIC, "assets")),
         name="assets",
     )
 
 
-@app.get("/")
-async def spa_root():
+def _serve_index() -> FileResponse | JSONResponse:
     index = os.path.join(_STATIC, "index.html")
     if os.path.isfile(index):
-        return FileResponse(index)
+        return FileResponse(index, headers=_INDEX_HEADERS)
     return JSONResponse({"hint": "Build frontend trước (npm run build).", "api": "/api/health"})
+
+
+@app.get("/")
+async def spa_root():
+    return _serve_index()
 
 
 @app.get("/{full_path:path}")
 async def spa_catchall(full_path: str):
     if full_path.startswith(("api/", "auth/", "ping", "assets/")):
         raise HTTPException(404)
-    index = os.path.join(_STATIC, "index.html")
-    if os.path.isfile(index):
-        return FileResponse(index)
-    raise HTTPException(404)
+    return _serve_index()
