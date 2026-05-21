@@ -105,6 +105,49 @@ class SheetClient:
 
         return await asyncio.to_thread(_read)
 
+    async def save_so_du(self, rows: list[dict]) -> None:
+        """Overwrite So_Du with provided rows (data only; we re-emit header + SUM=)."""
+
+        from sheets_manager import SO_DU_SHEET
+
+        def _to_int(v) -> int:
+            if v is None or v == "":
+                return 0
+            try:
+                return int(float(str(v).replace(",", "").replace(".", "").strip()))
+            except (ValueError, TypeError):
+                return 0
+
+        def _write():
+            client = self._mgr._get_client()
+            sh = client.open_by_key(self._mgr.spreadsheet_id)
+            try:
+                ws = sh.worksheet(SO_DU_SHEET)
+            except Exception:
+                ws = sh.add_worksheet(
+                    title=SO_DU_SHEET, rows=max(50, len(rows) + 5), cols=3
+                )
+
+            body: list[list] = [["Nguồn", "Đầu kỳ", "Hiện có"]]
+            for r in rows:
+                name = str(r.get("name", "")).strip()
+                if not name or name == "SUM=":
+                    continue
+                body.append([name, _to_int(r.get("dau_ky")), _to_int(r.get("hien_co"))])
+
+            n = len(body) - 1
+            if n > 0:
+                last = n + 1
+                body.append(["SUM=", f"=SUM(B2:B{last})", f"=SUM(C2:C{last})"])
+            else:
+                body.append(["SUM=", 0, 0])
+
+            ws.clear()
+            ws.update("A1", body, value_input_option="USER_ENTERED")
+            self._mgr._payment_methods_cache = None
+
+        await asyncio.to_thread(_write)
+
     def _plan_ws_sync(self):
         import gspread
 

@@ -303,7 +303,14 @@ export default function App() {
         )}
 
         {tab === "accounts" && (
-          <AccountsTable rows={accountRows} />
+          <AccountsTable
+            rows={accountRows}
+            onSaved={async () => {
+              await loadAccounts();
+              showOk("Đã lưu Số dư tài khoản.");
+            }}
+            onError={showErr}
+          />
         )}
 
         {tab === "plan" && (
@@ -619,30 +626,236 @@ function CashflowTab({ onError }: { onError: (s: string) => void }) {
   );
 }
 
-function AccountsTable({ rows }: { rows: AccountRow[] }) {
+interface EditRow {
+  name: string;
+  dau_ky: number;
+  hien_co: number;
+  /** Local-only id for stable React keys while editing. */
+  _id: string;
+}
+
+function AccountsTable({
+  rows,
+  onSaved,
+  onError,
+}: {
+  rows: AccountRow[];
+  onSaved: () => Promise<void> | void;
+  onError: (s: string) => void;
+}) {
   const fmtAmt = (n: number | null) => {
     if (n === null || n === undefined) return <span className="muted">—</span>;
     const s = new Intl.NumberFormat("vi-VN").format(n) + " đ";
     return <span className={n < 0 ? "neg-val" : ""}>{s}</span>;
   };
 
-  // rows that are real accounts (skip SUM= header-like rows for separate display)
   const dataRows = rows.filter((r) => r.name !== "SUM=" && r.name !== "Nguồn");
   const sumRow = rows.find((r) => r.name === "SUM=");
 
-  // total balance for mini summary cards
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<EditRow[]>([]);
+  const [saving, setSaving] = useState(false);
+
   const totalDau = dataRows.reduce((s, r) => s + (r.dau_ky ?? 0), 0);
   const totalHien = dataRows.reduce((s, r) => s + (r.hien_co ?? 0), 0);
 
+  function startEdit() {
+    setDraft(
+      dataRows.map((r, i) => ({
+        name: r.name,
+        dau_ky: r.dau_ky ?? 0,
+        hien_co: r.hien_co ?? 0,
+        _id: `${r.name}-${i}`,
+      })),
+    );
+    setEditing(true);
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+    setDraft([]);
+  }
+
+  function addRow() {
+    setDraft((d) => [
+      ...d,
+      { name: "", dau_ky: 0, hien_co: 0, _id: `new-${Date.now()}-${d.length}` },
+    ]);
+  }
+
+  function removeRow(id: string) {
+    setDraft((d) => d.filter((r) => r._id !== id));
+  }
+
+  function patchRow(id: string, patch: Partial<EditRow>) {
+    setDraft((d) => d.map((r) => (r._id === id ? { ...r, ...patch } : r)));
+  }
+
+  async function save() {
+    const seen = new Set<string>();
+    for (const r of draft) {
+      const name = r.name.trim();
+      if (!name) {
+        onError("Có dòng chưa nhập tên nguồn.");
+        return;
+      }
+      if (name === "SUM=") {
+        onError("Tên 'SUM=' bị reserved cho dòng tổng.");
+        return;
+      }
+      const key = name.toLowerCase();
+      if (seen.has(key)) {
+        onError(`Trùng tên nguồn: ${name}`);
+        return;
+      }
+      seen.add(key);
+    }
+    setSaving(true);
+    try {
+      await api("/api/accounts", {
+        method: "PUT",
+        body: JSON.stringify({
+          rows: draft.map((r) => ({
+            name: r.name.trim(),
+            dau_ky: Math.trunc(Number(r.dau_ky) || 0),
+            hien_co: Math.trunc(Number(r.hien_co) || 0),
+          })),
+        }),
+      });
+      setEditing(false);
+      setDraft([]);
+      await onSaved();
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Edit mode ──────────────────────────────────────────────────────────────
+  if (editing) {
+    const dDau = draft.reduce((s, r) => s + (Number(r.dau_ky) || 0), 0);
+    const dHien = draft.reduce((s, r) => s + (Number(r.hien_co) || 0), 0);
+    return (
+      <section className="panel">
+        <div className="row between" style={{ marginBottom: "1rem", flexWrap: "wrap", gap: 8 }}>
+          <h2 style={{ margin: 0 }}>Chỉnh sửa nguồn tài khoản</h2>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" className="btn" onClick={cancelEdit} disabled={saving}>
+              Huỷ
+            </button>
+            <button type="button" className="btn primary" onClick={save} disabled={saving}>
+              {saving ? "Đang lưu…" : "Lưu vào Google Sheet"}
+            </button>
+          </div>
+        </div>
+
+        <div className="tx-table-wrap">
+          <table className="sodu-table editable">
+            <thead>
+              <tr>
+                <th style={{ width: "40%" }}>Nguồn</th>
+                <th style={{ width: "25%" }}>Đầu kỳ (đ)</th>
+                <th style={{ width: "25%" }}>Hiện có (đ)</th>
+                <th style={{ width: "10%" }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {draft.map((r) => (
+                <tr key={r._id}>
+                  <td>
+                    <input
+                      type="text"
+                      value={r.name}
+                      onChange={(e) => patchRow(r._id, { name: e.target.value })}
+                      placeholder="vd: Tiền mặt, Vietcombank…"
+                      className="cell-input"
+                      autoFocus={!r.name}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      value={r.dau_ky}
+                      onChange={(e) => patchRow(r._id, { dau_ky: parseInt(e.target.value || "0", 10) })}
+                      className="cell-input num-cell"
+                      step={1000}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      value={r.hien_co}
+                      onChange={(e) => patchRow(r._id, { hien_co: parseInt(e.target.value || "0", 10) })}
+                      className="cell-input num-cell"
+                      step={1000}
+                    />
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn-icon"
+                      title="Xoá nguồn này"
+                      onClick={() => removeRow(r._id)}
+                    >
+                      ×
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {draft.length === 0 && (
+                <tr>
+                  <td colSpan={4}>
+                    <p className="empty-chart" style={{ margin: "1rem 0" }}>
+                      Chưa có nguồn nào — bấm “+ Thêm nguồn” bên dưới.
+                    </p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr className="sum-row">
+                <td><strong>SUM= (tự tính)</strong></td>
+                <td className="num-cell"><strong>{new Intl.NumberFormat("vi-VN").format(dDau)} đ</strong></td>
+                <td className="num-cell"><strong>{new Intl.NumberFormat("vi-VN").format(dHien)} đ</strong></td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+          <button type="button" className="btn" onClick={addRow}>+ Thêm nguồn</button>
+          <span className="hint" style={{ margin: 0 }}>
+            Dòng SUM= sẽ tự cập nhật bằng formula <code>=SUM(...)</code> trong Google Sheet.
+          </span>
+        </div>
+      </section>
+    );
+  }
+
+  // ── View mode ──────────────────────────────────────────────────────────────
   return (
     <section className="panel">
-      <div className="row between" style={{ marginBottom: "1rem" }}>
+      <div className="row between" style={{ marginBottom: "1rem", flexWrap: "wrap", gap: 8 }}>
         <h2 style={{ margin: 0 }}>Số dư tài khoản</h2>
-        <span className="hint" style={{ margin: 0 }}>Sheet <strong>So_Du</strong> — chỉnh trực tiếp trên Google Sheet để thêm/xóa</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span className="hint" style={{ margin: 0 }}>
+            Sheet <strong>So_Du</strong>
+          </span>
+          <button type="button" className="btn primary" onClick={startEdit}>
+            Chỉnh sửa
+          </button>
+        </div>
       </div>
 
       {rows.length === 0 ? (
-        <p className="empty-chart">Không đọc được sheet So_Du.</p>
+        <div>
+          <p className="empty-chart">Chưa có nguồn nào trong sheet So_Du.</p>
+          <button type="button" className="btn primary" onClick={startEdit}>
+            Thêm nguồn đầu tiên
+          </button>
+        </div>
       ) : (
         <>
           {/* ── Summary cards ── */}

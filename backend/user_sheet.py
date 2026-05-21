@@ -180,6 +180,52 @@ async def get_so_du(access_token: str, sheet_id: str) -> list[dict[str, Any]]:
     return await asyncio.to_thread(_read)
 
 
+async def save_so_du(
+    access_token: str,
+    sheet_id: str,
+    rows: list[dict[str, Any]],
+) -> None:
+    """Overwrite the So_Du tab with `rows` (excluding any SUM=/header).
+
+    Layout written: header + data rows + SUM= formula row. Using
+    USER_ENTERED so that "=SUM(...)" cells become live formulas.
+    """
+
+    def _to_int(v) -> int:
+        if v is None or v == "":
+            return 0
+        try:
+            return int(float(str(v).replace(",", "").replace(".", "").strip()))
+        except (ValueError, TypeError):
+            return 0
+
+    def _write():
+        sh = _open_sync(access_token, sheet_id)
+        try:
+            ws = sh.worksheet("So_Du")
+        except gspread.WorksheetNotFound:
+            ws = sh.add_worksheet(title="So_Du", rows=max(50, len(rows) + 5), cols=len(SO_DU_HEADERS))
+
+        body: list[list] = [list(SO_DU_HEADERS)]
+        for r in rows:
+            name = str(r.get("name", "")).strip()
+            if not name or name == "SUM=":
+                continue
+            body.append([name, _to_int(r.get("dau_ky")), _to_int(r.get("hien_co"))])
+
+        n = len(body) - 1  # number of data rows just appended
+        if n > 0:
+            last = n + 1  # 1-based row index of the last data row
+            body.append(["SUM=", f"=SUM(B2:B{last})", f"=SUM(C2:C{last})"])
+        else:
+            body.append(["SUM=", 0, 0])
+
+        ws.clear()
+        ws.update("A1", body, value_input_option="USER_ENTERED")
+
+    await asyncio.to_thread(_write)
+
+
 async def get_planning(access_token: str, sheet_id: str, month: str) -> list[dict]:
     from sheets_manager import _parse_vnd_amount
 

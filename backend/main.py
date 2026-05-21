@@ -186,6 +186,42 @@ async def accounts(ctx: TenantCtx = Depends(resolve_tenant)) -> dict[str, Any]:
     return {"payment_methods": methods, "rows": rows}
 
 
+class AccountRowIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    dau_ky: int = 0
+    hien_co: int = 0
+
+
+class AccountsSave(BaseModel):
+    rows: list[AccountRowIn]
+
+
+@app.put("/api/accounts")
+async def save_accounts(
+    body: AccountsSave,
+    ctx: TenantCtx = Depends(resolve_tenant),
+) -> dict[str, Any]:
+    """Replace the So_Du tab with provided rows. Reject duplicate / 'SUM='."""
+    seen: set[str] = set()
+    cleaned: list[dict[str, Any]] = []
+    for r in body.rows:
+        name = r.name.strip()
+        if not name:
+            raise HTTPException(400, "Tên nguồn không được trống.")
+        if name == "SUM=":
+            raise HTTPException(400, "Tên 'SUM=' bị reserved cho dòng tổng — đổi tên khác.")
+        key = name.lower()
+        if key in seen:
+            raise HTTPException(400, f"Trùng tên nguồn: {name}")
+        seen.add(key)
+        cleaned.append({"name": name, "dau_ky": r.dau_ky, "hien_co": r.hien_co})
+
+    await tenant_ops.save_so_du(ctx, cleaned)
+    rows = await tenant_ops.get_so_du(ctx)
+    methods = [r["name"] for r in rows if r["name"] != "SUM="]
+    return {"payment_methods": methods, "rows": rows}
+
+
 class PlanRowIn(BaseModel):
     fund: str
     percent: float = 0

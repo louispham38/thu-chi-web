@@ -405,6 +405,42 @@ body { margin: 0; min-height: 100vh; }
   padding: 0.55rem 0.75rem;
 }
 
+/* Editable accounts: inline cell inputs */
+.sodu-table.editable td {
+  padding: 0.35rem 0.5rem;
+}
+.sodu-table .cell-input {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0.4rem 0.55rem;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.sodu-table .cell-input:hover {
+  border-color: var(--border);
+}
+.sodu-table .cell-input:focus {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.03);
+}
+.sodu-table .cell-input.num-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Hide spinner buttons on number inputs (cleaner look) */
+.sodu-table .cell-input[type="number"]::-webkit-outer-spin-button,
+.sodu-table .cell-input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.sodu-table .cell-input[type="number"] {
+  -moz-appearance: textfield;
+}
+
 /* ── Cash flow ── */
 .cf-presets {
   display: flex;

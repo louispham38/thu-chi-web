@@ -43,6 +43,12 @@ async def get_so_du(ctx: TenantCtx) -> list[dict[str, Any]]:
     return await _legacy(ctx).get_so_du()
 
 
+async def save_so_du(ctx: TenantCtx, rows: list[dict[str, Any]]) -> None:
+    if ctx.mode == "user":
+        return await user_sheet.save_so_du(ctx.access_token, ctx.sheet_id, rows)
+    return await _legacy(ctx).save_so_du(rows)
+
+
 async def payment_methods(ctx: TenantCtx) -> list[str]:
     if ctx.mode == "user":
         rows = await user_sheet.get_so_du(ctx.access_token, ctx.sheet_id)
