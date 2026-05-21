@@ -103,6 +103,15 @@ def fernet_key() -> str:
     return os.environ.get("FERNET_KEY", "").strip()
 
 
+def google_picker_api_key() -> str:
+    """Browser API key (different from OAuth client) used by Google Picker.
+
+    Required when adopting an existing Sheet from the user's Drive — Picker
+    needs both an OAuth access_token AND a developer key to load.
+    """
+    return os.environ.get("GOOGLE_PICKER_API_KEY", "").strip()
+
+
 def auth_enabled() -> bool:
     """Multi-tenant mode requires both Google OAuth client + Fernet key."""
     return bool(google_oauth_client_id() and google_oauth_client_secret() and fernet_key())

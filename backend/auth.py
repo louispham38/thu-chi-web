@@ -31,7 +31,6 @@ OAUTH_SCOPES = [
     "openid",
     "email",
     "profile",
-    "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
 ]
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"

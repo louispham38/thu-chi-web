@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { pickSheetWithBackendToken } from "../lib/picker";
 
 interface Member {
   user_id: number;
@@ -36,6 +37,7 @@ export default function WorkspaceSettings() {
   const [invites, setInvites] = useState<Invite[]>([]);
   const [name, setName] = useState(ws?.name ?? "");
   const [renaming, setRenaming] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("editor");
   const [inviting, setInviting] = useState(false);
@@ -77,6 +79,35 @@ export default function WorkspaceSettings() {
       setMsg({ kind: "err", text: String(e) });
     } finally {
       setRenaming(false);
+    }
+  }
+
+  async function reconnectDrive() {
+    setReconnecting(true);
+    setMsg(null);
+    try {
+      const f = await pickSheetWithBackendToken();
+      if (!f) {
+        setReconnecting(false);
+        return;
+      }
+      if (f.id !== ws!.sheet_id) {
+        const ok = confirm(
+          `Bạn vừa chọn sheet "${f.name}" có ID khác với workspace hiện tại. ` +
+            `Tiếp tục sẽ chỉ cấp quyền cho file đó nhưng workspace vẫn trỏ về sheet cũ. ` +
+            `Bạn có chắc chứ?`,
+        );
+        if (!ok) {
+          setReconnecting(false);
+          return;
+        }
+      }
+      await api(`/api/workspaces/${ws!.id}/reconnect`, { method: "POST" });
+      setMsg({ kind: "ok", text: "Đã kết nối lại Drive thành công." });
+    } catch (e) {
+      setMsg({ kind: "err", text: String(e) });
+    } finally {
+      setReconnecting(false);
     }
   }
 
@@ -177,12 +208,28 @@ export default function WorkspaceSettings() {
           <label className="full">
             Sheet ID
             <input value={ws.sheet_id} readOnly />
-            <small className="hint" style={{ marginTop: 4 }}>
+            <small className="hint" style={{ marginTop: 4, display: "block" }}>
               <a href={`https://docs.google.com/spreadsheets/d/${ws.sheet_id}`} target="_blank" rel="noreferrer">
                 Mở Google Sheet ↗
               </a>
             </small>
           </label>
+          {(ws.role === "owner" || ws.role === "editor") && (
+            <div className="full">
+              <button
+                type="button"
+                className="btn"
+                disabled={reconnecting}
+                onClick={reconnectDrive}
+              >
+                {reconnecting ? "Đang kết nối…" : "Kết nối lại Drive (Google Picker)"}
+              </button>
+              <small className="hint" style={{ marginTop: 6, display: "block" }}>
+                Dùng nút này khi app báo không truy cập được Sheet — thường gặp sau khi đăng nhập
+                lại với scope mới hoặc khi Sheet bị di chuyển. Mở Picker và chọn lại đúng file.
+              </small>
+            </div>
+          )}
           {isOwner && (
             <button
               type="button"

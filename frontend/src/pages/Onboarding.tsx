@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
+import { pickSheetWithBackendToken, type PickedFile } from "../lib/picker";
 
 type Mode = "create" | "adopt";
 
@@ -9,20 +10,40 @@ export default function Onboarding() {
   const nav = useNavigate();
   const [mode, setMode] = useState<Mode>("create");
   const [workspaceName, setWorkspaceName] = useState("Thu/Chi của tôi");
-  const [sheetId, setSheetId] = useState("");
+  const [picked, setPicked] = useState<PickedFile | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  async function handlePick() {
+    setErr(null);
+    try {
+      const f = await pickSheetWithBackendToken();
+      if (f) {
+        setPicked(f);
+        if (workspaceName === "Thu/Chi của tôi" || !workspaceName.trim()) {
+          setWorkspaceName(f.name);
+        }
+      }
+    } catch (e) {
+      setErr(`Không mở được Google Picker: ${String(e)}`);
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (mode === "adopt" && !picked) {
+      setErr("Hãy bấm “Chọn từ Drive” để chọn Sheet trước.");
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
-      const url = mode === "create" ? "/api/onboarding/create-workspace" : "/api/onboarding/adopt-sheet";
-      const body = mode === "create" ? { workspace_name: workspaceName } : {
-        workspace_name: workspaceName,
-        sheet_id: extractSheetId(sheetId),
-      };
+      const url =
+        mode === "create" ? "/api/onboarding/create-workspace" : "/api/onboarding/adopt-sheet";
+      const body =
+        mode === "create"
+          ? { workspace_name: workspaceName }
+          : { workspace_name: workspaceName, sheet_id: picked!.id };
       const r = await fetch(url, {
         method: "POST",
         credentials: "include",
@@ -53,8 +74,8 @@ export default function Onboarding() {
         </div>
         <h1>Chào mừng{user?.name ? `, ${user.name}` : ""} 👋</h1>
         <p className="auth-sub">
-          Bước cuối — chọn cách lưu trữ dữ liệu thu/chi của bạn. Mọi giao dịch sẽ ghi vào một Google Sheet
-          trong <strong>Drive của bạn</strong> (không phải của chúng tôi).
+          Bước cuối — chọn cách lưu trữ dữ liệu thu/chi của bạn. Mọi giao dịch sẽ ghi vào một Google
+          Sheet trong <strong>Drive của bạn</strong> (không phải của chúng tôi).
         </p>
 
         <div className="mode-tabs">
@@ -86,40 +107,42 @@ export default function Onboarding() {
           </label>
 
           {mode === "adopt" && (
-            <label className="full">
-              Sheet ID hoặc URL
-              <input
-                value={sheetId}
-                onChange={(e) => setSheetId(e.target.value)}
-                placeholder="https://docs.google.com/spreadsheets/d/..."
-                required
-              />
-              <small className="hint" style={{ marginTop: 4 }}>
-                Sheet phải dùng cùng tài khoản Google bạn vừa đăng nhập, và có 3 tab:{" "}
-                <code>Chi Tiêu</code>, <code>So_Du</code>, <code>Ke_Hoach_Quy</code>.
+            <div className="full">
+              <label>Google Sheet</label>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <button type="button" className="btn" onClick={handlePick}>
+                  {picked ? "Đổi sheet…" : "Chọn từ Drive…"}
+                </button>
+                {picked && (
+                  <span className="hint" style={{ fontSize: 14 }}>
+                    Đã chọn: <strong>{picked.name}</strong>{" "}
+                    <code style={{ opacity: 0.6 }}>({picked.id.slice(0, 8)}…)</code>
+                  </span>
+                )}
+              </div>
+              <small className="hint" style={{ marginTop: 6, display: "block" }}>
+                Mở Google Picker để chọn Sheet trong Drive của bạn. Sheet nên có 3 tab{" "}
+                <code>Chi Tiêu</code>, <code>So_Du</code>, <code>Ke_Hoach_Quy</code> — nếu thiếu tab
+                nào, ứng dụng sẽ tạo bù.
               </small>
-            </label>
+            </div>
           )}
 
-          {err && <div className="banner err" style={{ marginTop: 0 }}>{err}</div>}
+          {err && (
+            <div className="banner err" style={{ marginTop: 0 }}>
+              {err}
+            </div>
+          )}
 
           <button type="submit" disabled={busy} className="btn primary big">
             {busy
               ? "Đang xử lý…"
               : mode === "create"
-                ? "Tạo Sheet & vào ứng dụng"
-                : "Liên kết & vào ứng dụng"}
+              ? "Tạo Sheet & vào ứng dụng"
+              : "Liên kết & vào ứng dụng"}
           </button>
         </form>
       </div>
     </div>
   );
-}
-
-function extractSheetId(input: string): string {
-  // Accept "abc123" or full URL "https://docs.google.com/spreadsheets/d/<id>/..."
-  const trimmed = input.trim();
-  const m = trimmed.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  if (m) return m[1];
-  return trimmed;
 }

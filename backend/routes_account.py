@@ -128,6 +128,44 @@ async def delete_workspace(
     return
 
 
+@router.post("/api/workspaces/{ws_id}/reconnect")
+async def reconnect_workspace(
+    ws_id: int,
+    user: User = Depends(current_user_required),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Re-validate that the user can read/write the workspace's Sheet.
+
+    Frontend calls this after the user has just (re-)picked the file via
+    Google Picker. The Picker flow tells Google "this user opened this file
+    via my app", which grants `drive.file` scope access for it. This endpoint
+    confirms via gspread that we can actually open the sheet now — useful
+    when migrating from the old `spreadsheets` (sensitive) scope to the
+    `drive.file`-only setup.
+    """
+    m = _membership_or_404(db, user.id, ws_id)
+    _require_role(m, "owner", "editor")
+    ws = db.get(Workspace, ws_id)
+    if ws is None:
+        raise HTTPException(404, "Workspace không tồn tại.")
+
+    import gspread
+    from google.oauth2.credentials import Credentials
+
+    access = await access_token_for_user(user)
+    try:
+        cli = gspread.authorize(Credentials(token=access))
+        sh = cli.open_by_key(ws.sheet_id)
+        title = sh.title
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            400,
+            "Chưa truy cập được sheet. Hãy chọn lại file từ Drive (Google Picker) "
+            f"để cấp quyền cho ứng dụng. Chi tiết: {e}",
+        ) from e
+    return {"id": ws.id, "name": ws.name, "sheet_id": ws.sheet_id, "title": title}
+
+
 @router.post("/api/workspaces/{ws_id}/leave", status_code=204)
 async def leave_workspace(
     ws_id: int,

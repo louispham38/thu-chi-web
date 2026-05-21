@@ -22,7 +22,12 @@ from auth import (
     make_session_token,
     make_state,
 )
-from config import auth_enabled, public_base_url
+from config import (
+    auth_enabled,
+    google_oauth_client_id,
+    google_picker_api_key,
+    public_base_url,
+)
 from db import get_db
 from models import Membership, User, Workspace
 from user_sheet import create_workbook
@@ -36,7 +41,27 @@ OAUTH_STATE_COOKIE = "thu_chi_oauth_state"
 
 @router.get("/auth/status")
 async def auth_status() -> dict:
-    return {"enabled": auth_enabled()}
+    return {
+        "enabled": auth_enabled(),
+        "picker_enabled": bool(google_picker_api_key() and google_oauth_client_id()),
+    }
+
+
+@router.get("/api/auth/google-token")
+async def google_token(user: User = Depends(current_user_required)) -> dict:
+    """Return a fresh Google access_token + Picker config for this user.
+
+    Used by the frontend to initialise Google Picker when adopting an existing
+    Sheet. Only the user themselves can fetch their own token (cookie-gated).
+    """
+    if not (google_picker_api_key() and google_oauth_client_id()):
+        raise HTTPException(503, "Google Picker chưa được cấu hình trên server.")
+    access = await access_token_for_user(user)
+    return {
+        "access_token": access,
+        "client_id": google_oauth_client_id(),
+        "api_key": google_picker_api_key(),
+    }
 
 
 @router.get("/auth/login")
@@ -218,18 +243,25 @@ async def onboarding_adopt(
     if not sheet_id:
         raise HTTPException(400, "sheet_id required")
 
-    # Verify access by trying to open it
+    # Verify access by trying to open it. With drive.file scope, this only
+    # succeeds if the user just picked the file via Google Picker (which
+    # registers the file as "opened by app"). Manual paste of a Sheet ID
+    # will fail here, which is the desired behaviour.
     access = await access_token_for_user(user)
     import gspread
     from google.oauth2.credentials import Credentials
     try:
         cli = gspread.authorize(Credentials(token=access))
         sh = cli.open_by_key(sheet_id)
-        _ = sh.title
+        sh_title = sh.title
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(400, f"Không truy cập được Sheet: {e}") from e
+        raise HTTPException(
+            400,
+            "Không truy cập được Sheet. Hãy mở lại Google Picker và chọn file "
+            f"từ Drive thay vì dán ID. Chi tiết: {e}",
+        ) from e
 
-    ws = Workspace(name=body.workspace_name or sh.title, owner_id=user.id, sheet_id=sheet_id)
+    ws = Workspace(name=body.workspace_name or sh_title, owner_id=user.id, sheet_id=sheet_id)
     db.add(ws)
     db.flush()
     mem = Membership(user_id=user.id, workspace_id=ws.id, role="owner", is_default=True)

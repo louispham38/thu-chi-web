@@ -32,6 +32,13 @@ services:
       - key: PUBLIC_BASE_URL
         sync: false
 
+      # Browser API key cho Google Picker (cho user chọn Sheet có sẵn từ Drive
+      # khi scope OAuth chỉ là drive.file). Tạo tại Google Cloud Console →
+      # Credentials → Create credentials → API key. Bật Picker API trong
+      # APIs & Services → Library trước.
+      - key: GOOGLE_PICKER_API_KEY
+        sync: false
+
       # ── Database (Postgres do Render cung cấp) ─────────────────────────────
       - key: DATABASE_URL
         fromDatabase:
