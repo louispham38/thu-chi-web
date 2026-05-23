@@ -1,0 +1,26 @@
+# Git / IDE
+.git
+.gitignore
+.cursor
+*.md
+!README.md
+
+# Local Python
+backend/.venv
+backend/__pycache__
+backend/**/__pycache__
+backend/*.db
+backend/thu_chi.db
+
+# Local Node
+frontend/node_modules
+frontend/dist
+
+# Secrets (never bake into image)
+.env
+.env.*
+*.env
+frontend/.env.production
+
+# Render / misc
+terminals
